@@ -11,7 +11,7 @@
  */
 
 import { ApiStatus } from "../../constants/index.js";
-import { AppError, NotFoundError, AuthorizationError, ValidationError } from "../../http/errors.js";
+import { AppError, NotFoundError, AuthenticationError, AuthorizationError, ValidationError } from "../../http/errors.js";
 import { jsonOk } from "../../utils/common.js";
 import { getEncryptionSecret } from "../../utils/environmentUtils.js";
 import { useRepositories } from "../../utils/repositories.js";
@@ -107,11 +107,11 @@ async function ensureAccessible(db, record, encryptionSecret, repositoryFactory)
 async function ensurePassword(record, plainPassword) {
   if (!record.password) return;
   if (!plainPassword) {
-    throw new AuthorizationError("需要密码访问");
+    throw new AuthenticationError("需要密码访问");
   }
   const valid = await verifyPassword(plainPassword, record.password);
   if (!valid) {
-    throw new AuthorizationError("密码不正确");
+    throw new AuthenticationError("密码不正确");
   }
 }
 
@@ -311,7 +311,8 @@ export const registerFolderPublicRoutes = (router) => {
     response.headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
 
     // 成功交付后累计下载计数（文件夹分享的下载次数为内部所有文件的累计值）
-    if (response.status === 302 || (response.status >= 200 && response.status < 300)) {
+    // 仅“实际下载”计数；inline=1 为页面内预览，不消耗次数
+    if (!isInline && (response.status === 302 || (response.status >= 200 && response.status < 300))) {
       try {
         await repositoryFactory.getFileRepository().incrementDownloads(record.id);
       } catch (e) {

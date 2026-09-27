@@ -1,5 +1,5 @@
 import { ApiStatus } from "../../constants/index.js";
-import { AppError, NotFoundError, AuthorizationError, ValidationError } from "../../http/errors.js";
+import { AppError, NotFoundError, AuthenticationError, ValidationError } from "../../http/errors.js";
 import { jsonOk } from "../../utils/common.js";
 import { guardShareFile, getFileBySlug, getPublicFileInfo } from "../../services/fileService.js";
 import { verifyPassword } from "../../utils/crypto.js";
@@ -92,7 +92,7 @@ export const registerFilesPublicRoutes = (router) => {
       if (file.password) {
         const passwordValid = await verifyPassword(body.password, file.password);
         if (!passwordValid) {
-          throw new AuthorizationError("密码不正确");
+          throw new AuthenticationError("密码不正确");
         }
       }
       return jsonOk(c, buildFolderMetaPayload(file), "密码验证成功");
@@ -110,7 +110,7 @@ export const registerFilesPublicRoutes = (router) => {
 
     const passwordValid = await verifyPassword(body.password, file.password);
     if (!passwordValid) {
-      throw new AuthorizationError("密码不正确");
+      throw new AuthenticationError("密码不正确");
     }
 
     const { file: guardedFile, isExpired } = await guardShareFile(db, slug, encryptionSecret, { incrementViews: false });
