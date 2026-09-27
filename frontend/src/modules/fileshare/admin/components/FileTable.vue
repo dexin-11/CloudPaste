@@ -172,14 +172,14 @@
 
         <!-- 操作按钮 -->
         <div class="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-2">
-          <button @click="$emit('preview', file)" class="p-2 rounded-md" :class="darkMode ? 'bg-gray-700 text-blue-400' : 'bg-gray-100 text-blue-600'">
+          <button v-if="mode !== 'share'" @click="$emit('preview', file)" class="p-2 rounded-md" :class="darkMode ? 'bg-gray-700 text-blue-400' : 'bg-gray-100 text-blue-600'">
             <IconEye class="h-5 w-5" />
           </button>
-          <button @click="$emit('edit', file)" class="p-2 rounded-md" :class="darkMode ? 'bg-gray-700 text-green-400' : 'bg-gray-100 text-green-600'">
+          <button v-if="mode !== 'share'" @click="$emit('edit', file)" class="p-2 rounded-md" :class="darkMode ? 'bg-gray-700 text-green-400' : 'bg-gray-100 text-green-600'">
             <IconRename class="h-5 w-5" />
           </button>
           <!-- 移动端复制永久直链按钮 -->
-          <button @click="emit('copy-permanent-link', file)" class="p-2 rounded-md relative" :class="darkMode ? 'bg-gray-700 text-purple-400' : 'bg-gray-100 text-purple-600'">
+          <button v-if="mode !== 'share'" @click="emit('copy-permanent-link', file)" class="p-2 rounded-md relative" :class="darkMode ? 'bg-gray-700 text-purple-400' : 'bg-gray-100 text-purple-600'">
             <IconLink class="h-5 w-5" />
           </button>
           <button @click="$emit('delete', file)" class="p-2 rounded-md" :class="darkMode ? 'bg-gray-700 text-red-400' : 'bg-gray-100 text-red-600'">
@@ -224,6 +224,12 @@ const props = defineProps({
   loading: {
     type: Boolean,
     default: false,
+  },
+  // 展示模式：manage=文件管理（含预览/编辑等），share=分享链接管理（仅复制链接/二维码/删除）
+  mode: {
+    type: String,
+    default: "manage",
+    validator: (value) => ["manage", "share"].includes(value),
   },
 });
 
@@ -525,7 +531,7 @@ const fileColumns = computed(() => [
     header: "操作",
     sortable: false,
     render: (file) => {
-      const actions = [
+      const actions = props.mode === "share" ? [] : [
         {
           title: "预览",
           event: () => emit("preview", file),
@@ -889,7 +895,10 @@ const openFileLink = (file) => {
     return;
   }
 
-  const fileUrl = fileshareService.buildShareUrl(file, window.location.origin);
+  const fileUrl =
+    getTargetType(file) === "folder"
+      ? fileshareService.buildFolderShareUrl(file, window.location.origin)
+      : fileshareService.buildShareUrl(file, window.location.origin);
   window.open(fileUrl, "_blank");
 };
 </script>

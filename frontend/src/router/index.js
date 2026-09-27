@@ -112,6 +112,15 @@ const routes = [
         },
       },
       {
+        path: "share-management",
+        name: "AdminShareManagement",
+        component: createOfflineAwareImport(() => import("../modules/fileshare/admin/ShareManagementView.vue"), "分享链接管理"),
+        meta: {
+          title: "分享链接管理 - CloudPaste",
+          requiredPermissions: ["file"], // 需要文件权限
+        },
+      },
+      {
         path: "key-management",
         name: "AdminKeyManagement",
         component: createOfflineAwareImport(() => import("../modules/admin/views/KeyManagementView.vue"), "密钥管理"),
@@ -697,6 +706,9 @@ router.afterEach(async (to, from) => {
         break;
       case "AdminFileManagement":
         title = `${t("pageTitle.adminModules.fileManagement")} - ${siteTitle}`;
+        break;
+      case "AdminShareManagement":
+        title = `${t("pageTitle.adminModules.shareManagement")} - ${siteTitle}`;
         break;
       case "AdminStorage":
         title = `${t("pageTitle.adminModules.storageConfig")} - ${siteTitle}`;

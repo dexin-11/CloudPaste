@@ -433,7 +433,6 @@ import { useI18n } from "vue-i18n";
 import { storeToRefs } from "pinia";
 import { useEventListener, useWindowScroll } from "@vueuse/core";
 import { useThemeMode } from "@/composables/core/useThemeMode.js";
-import { useSiteConfigStore } from "@/stores/siteConfigStore.js";
 import { IconBack, IconExclamation, IconSearch, IconSettings, IconXCircle } from "@/components/icons";
 import LoadingIndicator from "@/components/common/LoadingIndicator.vue";
 
@@ -487,10 +486,6 @@ const uiState = useUIState();
 const fileBasket = useFileBasket();
 const pathPassword = usePathPassword();
 
-// 站点配置：复用原独立上传页开关控制挂载浏览内的上传入口
-const siteConfigStore = useSiteConfigStore();
-const canUpload = computed(() => !siteConfigStore.isInitialized || siteConfigStore.siteUploadPageEnabled);
-
 // 右键菜单 - 延迟初始化
 let contextMenu = null;
 
@@ -537,6 +532,9 @@ const {
   removeItemsFromCurrentDirectory,
   loadMoreCurrentDirectory,
 } = useMountExplorerController();
+
+// 上传能力：仅取决于当前目录是否可写（虚拟目录只读），与独立上传页开关无关
+const canUpload = computed(() => !isVirtualDirectory.value);
 
 const { y: windowScrollY } = useWindowScroll();
 
