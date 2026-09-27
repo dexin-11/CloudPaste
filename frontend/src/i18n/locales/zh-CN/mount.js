@@ -204,6 +204,7 @@ export default {
       noPdfPreview: "无法加载 PDF 预览",
       officeLoading: "加载中...",
       getStorageLinkFailed: "获取存储直链失败: {message}",
+      s3PreviewError: "S3 直链预览失败: {message}",
       storagePreviewFailed: "存储直链预览失败: {message}",
       fileTooLarge: "文件内容过大，超过最大限制(10MB)。请减少文件大小后重试。",
       saveFileFailed: "保存文件失败: {message}",

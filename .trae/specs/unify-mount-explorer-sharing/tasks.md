@@ -40,10 +40,10 @@
   - [x] SubTask 6.5: 在 [MountExplorerView.vue](file:///workspace/frontend/src/modules/fs/MountExplorerView.vue) 接线弹窗状态与事件
   - [x] SubTask 6.6: 验证：文件与文件夹均可生成链接，限制字段写入后端
 
-- [ ] Task 7: 上传即生成分享链接（迁移到挂载浏览）
-  - [ ] SubTask 7.1: 在 [UppyUploadModal.vue](file:///workspace/frontend/src/modules/fs/components/shared/modals/UppyUploadModal.vue) 增加「上传并生成分享链接」开关与选项区（备注/密码/有效期/下载次数）
-  - [ ] SubTask 7.2: 上传成功后按上传得到的文件路径调用 `createShareFromFileSystem`，结果面板展示链接；单个失败不影响其他文件
-  - [ ] SubTask 7.3: 验证：开启后上传 N 个文件生成 N 条分享；关闭后行为与现状一致
+- [x] Task 7: 上传即生成分享链接（迁移到挂载浏览）
+  - [x] SubTask 7.1: 在 [UppyUploadModal.vue](file:///workspace/frontend/src/modules/fs/components/shared/modals/UppyUploadModal.vue) 增加「上传并生成分享链接」开关与选项区（备注/密码/有效期/下载次数）
+  - [x] SubTask 7.2: 上传成功后按上传得到的文件路径调用 `createShareFromFileSystem`，结果面板展示链接；单个失败不影响其他文件
+  - [x] SubTask 7.3: 验证：开启后上传 N 个文件生成 N 条分享；关闭后行为与现状一致
 
 - [x] Task 8: 公开文件夹分享页
   - [x] SubTask 8.1: 新增路由 `/folder/:slug` → `frontend/src/modules/fileshare/public/FolderShareView.vue`（[router/index.js](file:///workspace/frontend/src/router/index.js)）
@@ -57,11 +57,17 @@
   - [x] SubTask 9.2: 确保 [FileEditModal.vue](file:///workspace/frontend/src/components/file/FileEditModal.vue) 可编辑文件夹分享的密码/有效期/下载次数
   - [x] SubTask 9.3: 验证：文件夹分享出现在列表且可编辑限制
 
-- [ ] Task 10: 国际化与收尾
-  - [ ] SubTask 10.1: 补充 `zh-CN`/`en-US` 文案（分享创建弹窗、文件夹分享页、下载次数相关标签、上传并分享）
-  - [ ] SubTask 10.2: 全量自检：跑前后端构建/静态检查，回归现有文件分享与挂载浏览核心路径，确认无新增 bug
+- [x] Task 10: 国际化与收尾
+  - [x] SubTask 10.1: 补充 `zh-CN`/`en-US` 文案（分享创建弹窗、文件夹分享页、下载次数相关标签、上传并分享）
+  - [x] SubTask 10.2: 全量自检：跑前后端构建/静态检查，回归现有文件分享与挂载浏览核心路径，确认无新增 bug
+
+- [x] Task 11: 修正密码校验的状态码（对齐 spec）
+  - [x] SubTask 11.1: [files/public.js](file:///workspace/backend/src/routes/files/public.js) 两处 `AuthorizationError("密码不正确")` 改为 `AuthenticationError`（401），未提供密码与密码错误均返回 401
+  - [x] SubTask 11.2: [folderPublic.js](file:///workspace/backend/src/routes/files/folderPublic.js) 的 `ensurePassword` 中 `"需要密码访问"` / `"密码不正确"` 改为 `AuthenticationError`（401）
+  - [x] SubTask 11.3: 验证：错误密码返回 401，正确密码成功，前端 FileViewPassword 归类为「密码错误」
 
 # Task Dependencies
+- Task 11 依赖 Task 3、Task 4
 - Task 2 依赖 Task 1
 - Task 3 依赖 Task 1
 - Task 4 依赖 Task 1、Task 3

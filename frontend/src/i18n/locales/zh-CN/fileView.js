@@ -304,6 +304,7 @@ export default {
       notFound: "文件不存在",
       unknown: "未知错误",
       missingSlug: "缺少文件标识符",
+      missingId: "缺少文件 ID",
       loadFailed: "无法加载文件信息",
       getDetailsFailed: "获取详情失败",
       getDetailsFailedMessage: "获取文件详情失败，将使用当前显示的信息",

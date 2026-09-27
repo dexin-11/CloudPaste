@@ -304,6 +304,7 @@ export default {
       notFound: "File not found",
       unknown: "Unknown error",
       missingSlug: "Missing file identifier",
+      missingId: "Missing file ID",
       loadFailed: "Unable to load file information",
       getDetailsFailed: "Failed to get details",
       getDetailsFailedMessage: "Failed to get file details, will use currently displayed information",

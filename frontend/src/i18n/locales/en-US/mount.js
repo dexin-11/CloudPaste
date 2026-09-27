@@ -205,6 +205,7 @@ export default {
       pdfLoading: "Loading PDF preview...",
       noPdfPreview: "Unable to load PDF preview",
       getStorageLinkFailed: "Failed to get storage direct link: {message}",
+      s3PreviewError: "S3 direct preview failed: {message}",
       storagePreviewFailed: "Storage direct preview failed: {message}",
       fileTooLarge: "File content is too large, exceeds maximum limit (10MB). Please reduce file size and try again.",
       saveFileFailed: "Failed to save file: {message}",
