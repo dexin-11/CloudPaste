@@ -216,6 +216,7 @@ export async function createFileTables(db) {
         max_views INTEGER,
         views INTEGER DEFAULT 0,
         use_proxy BOOLEAN DEFAULT 0,
+        target_type TEXT NOT NULL DEFAULT 'file',
 
         -- 元数据
         created_by TEXT,

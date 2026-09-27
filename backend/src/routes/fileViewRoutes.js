@@ -56,9 +56,22 @@ async function handleShareDelivery(c, { forceDownload, forceProxy }) {
     throw new AuthorizationError("文件不可访问");
   }
 
-  return handleFileDownload(slug, db, encryptionSecret, c.req.raw, forceDownload, repositoryFactory, {
+  const response = await handleFileDownload(slug, db, encryptionSecret, c.req.raw, forceDownload, repositoryFactory, {
     forceProxy: !!forceProxy,
   });
+
+  // 仅在“真实下载”且交付成功时递增下载计数；
+  // 仅打开/预览分享页（forceDownload=false）不会计数。
+  if (forceDownload && (response.status === 302 || (response.status >= 200 && response.status < 300))) {
+    try {
+      const fileRepo = repositoryFactory.getFileRepository();
+      await fileRepo.incrementDownloads(file.id);
+    } catch (e) {
+      console.warn("递增下载计数失败（已忽略）:", e?.message || e);
+    }
+  }
+
+  return response;
 }
 
 // Share 本地代理入口 /api/s/:slug（等价 FS 的 /api/p）

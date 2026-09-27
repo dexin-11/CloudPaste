@@ -37,6 +37,77 @@
           @toggle-plugin="togglePlugin"
         />
 
+        <!-- 上传后生成分享链接 -->
+        <div class="mb-4 rounded-md border" :class="darkMode ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50/60'">
+          <label class="flex items-center space-x-2 px-3 py-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              v-model="shareEnabled"
+              :disabled="isUploading"
+              class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span class="text-sm font-medium" :class="darkMode ? 'text-gray-200' : 'text-gray-700'">
+              {{ t("mount.uppy.shareAfterUpload") }}
+            </span>
+          </label>
+
+          <div
+            v-if="shareEnabled"
+            class="px-3 pb-3 pt-3 space-y-3 border-t"
+            :class="darkMode ? 'border-gray-700' : 'border-gray-200'"
+          >
+            <!-- 备注 -->
+            <div>
+              <label class="block text-sm font-medium mb-1" :class="darkMode ? 'text-gray-300' : 'text-gray-700'">{{ t("mount.shareCreate.remark") }}</label>
+              <textarea
+                v-model="shareForm.remark"
+                rows="2"
+                class="w-full px-3 py-2 border rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                :class="darkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'"
+                :placeholder="t('mount.shareCreate.remarkPlaceholder')"
+              ></textarea>
+            </div>
+
+            <!-- 访问密码 -->
+            <div>
+              <label class="block text-sm font-medium mb-1" :class="darkMode ? 'text-gray-300' : 'text-gray-700'">{{ t("mount.shareCreate.password") }}</label>
+              <input
+                type="text"
+                v-model="shareForm.password"
+                class="w-full px-3 py-2 border rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                :class="darkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'"
+                :placeholder="t('mount.shareCreate.passwordPlaceholder')"
+              />
+            </div>
+
+            <!-- 有效期 -->
+            <div>
+              <label class="block text-sm font-medium mb-1" :class="darkMode ? 'text-gray-300' : 'text-gray-700'">{{ t("mount.shareCreate.expiry") }}</label>
+              <select
+                v-model="shareForm.expires_in"
+                class="w-full px-3 py-2 border rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                :class="darkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'"
+              >
+                <option v-for="opt in shareExpiryOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
+
+            <!-- 下载次数上限 -->
+            <div>
+              <label class="block text-sm font-medium mb-1" :class="darkMode ? 'text-gray-300' : 'text-gray-700'">{{ t("mount.shareCreate.maxViews") }}</label>
+              <input
+                type="number"
+                min="0"
+                :value="shareForm.max_views"
+                @input="handleMaxViewsInput($event.target.value)"
+                class="w-full px-3 py-2 border rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                :class="darkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'"
+                :placeholder="t('mount.shareCreate.maxViewsPlaceholder')"
+              />
+            </div>
+          </div>
+        </div>
+
         <!-- Uppy Dashboard 容器 -->
         <UppyDashboardContainer
           ref="uppyContainerRef"
@@ -47,6 +118,35 @@
           :paste-key="t('mount.uppy.pasteKey')"
           :paste-hint-suffix="t('mount.uppy.pasteHint')"
         />
+
+        <!-- 分享链接结果 -->
+        <div v-if="isCreatingShares || shareResults.length" class="mt-4 space-y-2">
+          <div class="text-sm font-medium" :class="darkMode ? 'text-gray-200' : 'text-gray-700'">
+            {{ isCreatingShares ? t("mount.uppy.shareCreating") : t("mount.uppy.shareResultsTitle") }}
+          </div>
+          <div v-for="(item, index) in shareResults" :key="index">
+            <ShareLinkBox
+              v-if="item.success"
+              :dark-mode="darkMode"
+              :label="item.name"
+              :share-link="item.link"
+              :copy-tooltip="t('mount.shareCreate.copyLink')"
+              :copy-success-text="t('mount.shareCreate.linkCopied')"
+              :copy-failure-text="t('mount.shareCreate.copyFailed')"
+              :show-qr-button="true"
+              :qr-tooltip="t('mount.shareCreate.showQRCode')"
+              @show-qr-code="handleShowQRCode"
+              @status-message="handleStatusMessage"
+            />
+            <div
+              v-else
+              class="p-2 rounded text-xs"
+              :class="darkMode ? 'bg-red-900/20 text-red-300' : 'bg-red-50 text-red-600'"
+            >
+              {{ t("mount.uppy.shareFailedFor", { name: item.name, message: item.error }) }}
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 底部操作栏 -->
@@ -76,6 +176,9 @@
         </div>
       </div>
     </div>
+
+    <!-- 二维码弹窗 -->
+    <QRCodeModal :visible="showQRCodeModal" :share-link="qrLink" @close="showQRCodeModal = false" @status-message="handleStatusMessage" />
 
     <!-- 多个上传选择对话框 -->
     <Teleport to="body">
@@ -130,6 +233,9 @@ import { STORAGE_STRATEGIES } from "@/modules/storage-core/drivers/types.js";
 import { resolveDriverByConfigId } from "@/modules/storage-core/drivers/registry.js";
 import { useShareUploadController } from "@/modules/upload";
 import { normalizeFsPath } from "@/utils/fsPathUtils.js";
+import { createShareFromFileSystem } from "@/api/services/fsService.js";
+import { useShareSettingsForm } from "@/composables/upload/useShareSettingsForm.js";
+import { useGlobalMessage } from "@/composables/core/useGlobalMessage.js";
 
 // 导入插件管理器
 import { createUppyPluginManager } from "@/modules/storage-core/uppy/UppyPluginManager.js";
@@ -139,6 +245,8 @@ import { validateUrlInfo, fetchUrlContent } from "@/api/services/urlUploadServic
 
 // 导入对话框组件
 import SelectUploadDialog from "@/components/common/dialogs/SelectUploadDialog.vue";
+import ShareLinkBox from "@/components/common/ShareLinkBox.vue";
+import QRCodeModal from "@/modules/paste/editor/components/QRCodeModal.vue";
 
 // 组件属性
 const props = defineProps({
@@ -200,6 +308,23 @@ const selectUploadData = ref({
   onSelect: null,
   onCancel: null,
 });
+
+// 上传后生成分享链接
+const { formData: shareForm, handleMaxViewsInput, resetShareSettings } = useShareSettingsForm();
+const { showSuccess, showError } = useGlobalMessage();
+const shareEnabled = ref(false);
+const shareResults = ref([]);
+const isCreatingShares = ref(false);
+const showQRCodeModal = ref(false);
+const qrLink = ref("");
+
+const shareExpiryOptions = computed(() => [
+  { value: "1", label: t("mount.shareCreate.expiryOptions.hour1") },
+  { value: "24", label: t("mount.shareCreate.expiryOptions.day1") },
+  { value: "168", label: t("mount.shareCreate.expiryOptions.day7") },
+  { value: "720", label: t("mount.shareCreate.expiryOptions.day30") },
+  { value: "0", label: t("mount.shareCreate.expiryOptions.never") },
+]);
 
 // 插件管理器实例
 let pluginManager = null;
@@ -624,6 +749,97 @@ const setupUppy = async () => {
 };
 
 /**
+ * 根据上传完成的文件推导其 FS 挂载视图路径
+ * 上传结果的最终文件名保存在 file.name（各驱动会将自定义文件名同步到此字段）
+ * @param {Object} file Uppy 文件对象
+ * @returns {string} FS 视图路径
+ */
+const buildUploadedFsPath = (file) => {
+  const name = file?.name || file?.meta?.name || "";
+  if (!name) return "";
+  const base = normalizeFsPath(props.currentPath);
+  return base === "/" ? `/${name}` : `${base}/${name}`;
+};
+
+/**
+ * 上传成功后按文件逐个创建分享链接
+ * - 单个文件失败不影响其他文件
+ * - 结果写入 shareResults，供结果面板展示
+ */
+const createSharesForUploaded = async (successfulFiles) => {
+  if (!shareEnabled.value || !Array.isArray(successfulFiles) || successfulFiles.length === 0) {
+    return;
+  }
+
+  isCreatingShares.value = true;
+  shareResults.value = [];
+
+  try {
+    for (const file of successfulFiles) {
+      const name = file?.name || file?.meta?.name || "";
+      const fsPath = buildUploadedFsPath(file);
+      try {
+        if (!fsPath) {
+          throw new Error(t("mount.shareCreate.failed"));
+        }
+        const resp = await createShareFromFileSystem(fsPath, {
+          password: shareForm.password || "",
+          expires_in: String(shareForm.expires_in ?? "0"),
+          max_views: Math.max(0, Number(shareForm.max_views) || 0),
+          remark: shareForm.remark || "",
+        });
+        if (!resp || resp.success === false) {
+          throw new Error(resp?.message || t("mount.shareCreate.failed"));
+        }
+        const data = resp.data || {};
+        shareResults.value.push({
+          name,
+          success: true,
+          link: data.url ? `${window.location.origin}${data.url}` : "",
+          result: data,
+        });
+      } catch (error) {
+        log.warn("[Uppy] 上传后创建分享链接失败", name, error);
+        shareResults.value.push({
+          name,
+          success: false,
+          error: error?.message || t("mount.shareCreate.failed"),
+        });
+      }
+    }
+  } finally {
+    isCreatingShares.value = false;
+  }
+};
+
+const handleShowQRCode = (link) => {
+  qrLink.value = typeof link === "string" ? link : "";
+  showQRCodeModal.value = true;
+};
+
+const handleStatusMessage = (payload) => {
+  if (typeof payload === "string") {
+    if (payload) showSuccess(payload);
+    return;
+  }
+  if (!payload?.message) return;
+  if (payload.type === "error") {
+    showError(payload.message);
+  } else {
+    showSuccess(payload.message);
+  }
+};
+
+const resetShareState = () => {
+  shareEnabled.value = false;
+  shareResults.value = [];
+  isCreatingShares.value = false;
+  showQRCodeModal.value = false;
+  qrLink.value = "";
+  resetShareSettings();
+};
+
+/**
  * 处理上传完成事件
  */
 const handleUploadComplete = async (result) => {
@@ -671,6 +887,11 @@ const handleUploadComplete = async (result) => {
         uppyInstance.value.clear();
       }
     }, 4000);
+
+    // 上传后生成分享链接（开关关闭时保持原有行为）
+    if (shareEnabled.value) {
+      await createSharesForUploaded(result.successful);
+    }
   }
 
   if (result.failed.length > 0) {
@@ -858,6 +1079,7 @@ const closeModal = () => {
   }
   errorMessage.value = "";
   isUploading.value = false;
+  resetShareState();
   resetBackendProgressTracking();
   disposeFsSession(true);
   disposeFsAdapterHandle();
@@ -901,6 +1123,7 @@ watch(
   () => props.isOpen,
   async (newValue) => {
     if (newValue) {
+      resetShareState();
       await ensureMountsLoaded();
       try {
         await storageConfigsStore.loadConfigs();
@@ -912,6 +1135,7 @@ watch(
       uppyInstance.value.clear();
       errorMessage.value = "";
       isUploading.value = false;
+      resetShareState();
       resetBackendProgressTracking();
       disposeFsSession(true);
       disposeFsAdapterHandle();

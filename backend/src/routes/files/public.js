@@ -7,6 +7,23 @@ import { useRepositories } from "../../utils/repositories.js";
 import { getEncryptionSecret } from "../../utils/environmentUtils.js";
 import { LinkService } from "../../storage/link/LinkService.js";
 
+/**
+ * 文件夹分享的最小元信息负载
+ * - 文件夹没有单一文件 URL，避免调用 LinkService/getPublicFileInfo 生成无效直链
+ * @param {Object} file
+ */
+const buildFolderMetaPayload = (file) => ({
+  id: file.id,
+  slug: file.slug,
+  filename: file.filename,
+  remark: file.remark,
+  target_type: "folder",
+  requires_password: !!file.password,
+  expires_at: file.expires_at,
+  max_views: file.max_views,
+  views: file.views,
+});
+
 export const registerFilesPublicRoutes = (router) => {
   const getShareFileInfoHandler = async (c) => {
     const db = c.env.DB;
@@ -15,10 +32,16 @@ export const registerFilesPublicRoutes = (router) => {
     const requestUrl = new URL(c.req.url);
 
     const file = await getFileBySlug(db, slug);
+
+    // 文件夹分享：短路返回最小元信息负载
+    if (file.target_type === "folder") {
+      return jsonOk(c, buildFolderMetaPayload(file), "获取分享成功");
+    }
+
     const requiresPassword = !!file.password;
 
     if (!requiresPassword) {
-      const { file: guardedFile, isExpired } = await guardShareFile(db, slug, encryptionSecret, { incrementViews: true });
+      const { file: guardedFile, isExpired } = await guardShareFile(db, slug, encryptionSecret, { incrementViews: false });
 
       if (isExpired) {
         const repositoryFactory = useRepositories(c);
@@ -63,6 +86,18 @@ export const registerFilesPublicRoutes = (router) => {
     }
 
     const file = await getFileBySlug(db, slug);
+
+    // 文件夹分享：先校验密码，再短路返回最小元信息负载
+    if (file.target_type === "folder") {
+      if (file.password) {
+        const passwordValid = await verifyPassword(body.password, file.password);
+        if (!passwordValid) {
+          throw new AuthorizationError("密码不正确");
+        }
+      }
+      return jsonOk(c, buildFolderMetaPayload(file), "密码验证成功");
+    }
+
     if (!file.password) {
       const repositoryFactory = useRepositories(c);
       const linkService = new LinkService(db, encryptionSecret, repositoryFactory);
@@ -78,7 +113,7 @@ export const registerFilesPublicRoutes = (router) => {
       throw new AuthorizationError("密码不正确");
     }
 
-    const { file: guardedFile, isExpired } = await guardShareFile(db, slug, encryptionSecret, { incrementViews: true });
+    const { file: guardedFile, isExpired } = await guardShareFile(db, slug, encryptionSecret, { incrementViews: false });
 
     if (isExpired) {
       throw new AppError("文件已达到最大查看次数", { status: ApiStatus.GONE, code: "GONE", expose: true });

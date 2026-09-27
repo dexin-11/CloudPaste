@@ -43,9 +43,9 @@ const createOfflineAwareImport = (importFn, componentName = "页面") => {
 };
 
 const HomeView = createOfflineAwareImport(() => import("../modules/paste/editor/MarkdownEditorView.vue"), "首页");
-const UploadView = createOfflineAwareImport(() => import("../modules/upload/public/UploadView.vue"), "文件上传页面");
 const PasteView = createOfflineAwareImport(() => import("../modules/paste/public/PasteView.vue"), "文本分享页面");
 const FileView = createOfflineAwareImport(() => import("../modules/fileshare/public/FileView.vue"), "文件预览页面");
+const FolderShareView = createOfflineAwareImport(() => import("../modules/fileshare/public/FolderShareView.vue"), "文件夹分享页面");
 const MountExplorerView = createOfflineAwareImport(() => import("../modules/fs/MountExplorerView.vue"), "挂载浏览器");
 
 // 路由配置 - 完全对应原有的页面逻辑
@@ -60,13 +60,9 @@ const routes = [
     },
   },
   {
+    // 兼容旧链接：独立“文件上传”页面已并入“挂载浏览”
     path: "/upload",
-    name: "Upload",
-    component: UploadView,
-    meta: {
-      title: "文件上传 - CloudPaste",
-      originalPage: "upload",
-    },
+    redirect: { name: "MountExplorer" },
   },
   // 管理员登录页面
   {
@@ -286,6 +282,16 @@ const routes = [
     },
   },
   {
+    path: "/folder/:slug",
+    name: "FolderShareView",
+    component: FolderShareView,
+    props: true,
+    meta: {
+      title: "文件夹分享 - CloudPaste",
+      originalPage: "folder-share",
+    },
+  },
+  {
     path: "/mount-explorer",
     name: "MountExplorer",
     component: MountExplorerView,
@@ -390,7 +396,6 @@ const hasRoutePermission = (route, authStore) => {
 const isPublicEntryDisabled = (pageKey, siteConfigStore) => {
   if (!siteConfigStore?.isInitialized) return false;
   if (pageKey === "home") return siteConfigStore.siteHomeEditorEnabled === false;
-  if (pageKey === "upload") return siteConfigStore.siteUploadPageEnabled === false;
   if (pageKey === "mount-explorer") return siteConfigStore.siteMountExplorerEnabled === false;
   return false;
 };
@@ -402,10 +407,9 @@ const getFallbackRoute = (authStore, siteConfigStore) => {
   }
 
   if (siteConfigStore.siteHomeEditorEnabled) return { name: "Home" };
-  if (siteConfigStore.siteUploadPageEnabled) return { name: "Upload" };
   if (siteConfigStore.siteMountExplorerEnabled) return { name: "MountExplorer" };
 
-  // 三个入口都关了：让用户进管理入口（未登录会自动去登录页）
+  // 公开入口都关了：让用户进管理入口（未登录会自动去登录页）
   if (authStore?.isAuthenticated) return { path: "/admin" };
   return { name: "AdminLogin" };
 };
@@ -685,9 +689,6 @@ router.afterEach(async (to, from) => {
       case "Home":
         title = `${siteTitle} - ${t("pageTitle.homeSubtitle")}`;
         break;
-      case "Upload":
-        title = `${t("pageTitle.uploadSubtitle")} - ${siteTitle}`;
-        break;
       case "AdminDashboard":
         title = `${t("pageTitle.adminModules.dashboard")} - ${siteTitle}`;
         break;
@@ -739,6 +740,9 @@ router.afterEach(async (to, from) => {
       case "FileView":
         title = `${t("pageTitle.fileViewSubtitle")} - ${siteTitle}`;
         break;
+      case "FolderShareView":
+        title = `${t("fileView.folder.title")} - ${siteTitle}`;
+        break;
       case "MountExplorer":
       case "MountExplorerPath":
         title = `${t("pageTitle.mountExplorerSubtitle")} - ${siteTitle}`;
@@ -784,7 +788,8 @@ export const routerUtils = {
   navigateTo(page, options = {}) {
     const routeMap = {
       home: { name: "Home" },
-      upload: { name: "Upload" },
+      // 兼容旧调用：upload 已并入 mount-explorer
+      upload: { name: "MountExplorer" },
       admin: { name: "Admin" },
       "paste-view": {
         name: "PasteView",
@@ -793,6 +798,10 @@ export const routerUtils = {
       "file-view": {
         name: "FileView",
         params: { slug: options.slug || options.fileSlug },
+      },
+      "folder-view": {
+        name: "FolderShareView",
+        params: { slug: options.slug || options.folderSlug },
       },
       "mount-explorer": { name: "MountExplorer" },
     };

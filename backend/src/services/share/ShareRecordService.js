@@ -26,6 +26,7 @@ export class ShareRecordService {
   async createShareRecord({
     mount,
     fsPath,
+    targetType = "file",
     storageSubPath = "",
     filename,
     size,
@@ -50,6 +51,7 @@ export class ShareRecordService {
     }
 
     const createdBy = this.resolveCreatedBy(userIdOrInfo, userType);
+    const finalTargetType = targetType === "folder" ? "folder" : "file";
 
     const finalSlug = await generateUniqueFileSlug(this.db, slug, override, {
       userIdOrInfo,
@@ -110,6 +112,7 @@ export class ShareRecordService {
           filename,
           size,
           mimetype: normalizedMimeType,
+          target_type: finalTargetType,
           etag: uploadResult?.etag || null,
           remark,
           expires_at: expiresAt,
@@ -138,6 +141,7 @@ export class ShareRecordService {
           storage_type: storageType,
           storage_path: storagePath,
           file_path: fsPath,
+          target_type: finalTargetType,
           use_proxy: useProxyFlag,
           public_url: uploadResult?.publicUrl || null,
           etag: uploadResult?.etag || null,
@@ -160,12 +164,13 @@ export class ShareRecordService {
           views: views,
           max_views: maxViewsValue,
           expires_at: expiresAt,
-          url: `/file/${existing.slug}`,
+          url: finalTargetType === "folder" ? `/folder/${existing.slug}` : `/file/${existing.slug}`,
           use_proxy: useProxyFlag,
           created_by: existing.created_by,
           used_original_filename: originalFilenameUsed,
           storage_path: storagePath,
           storage_type: storageType,
+          target_type: finalTargetType,
         };
       }
     }
@@ -180,6 +185,7 @@ export class ShareRecordService {
       storage_path: storagePath,
       file_path: fsPath,
       mimetype: normalizedMimeType,
+      target_type: finalTargetType,
       size,
       etag: uploadResult?.etag || null,
       remark,
@@ -208,6 +214,7 @@ export class ShareRecordService {
       storage_type: storageType,
       storage_path: storagePath,
       file_path: fsPath,
+      target_type: finalTargetType,
       use_proxy: useProxyFlag,
       public_url: uploadResult?.publicUrl || null,
       etag: uploadResult?.etag || null,
@@ -231,12 +238,13 @@ export class ShareRecordService {
       max_views: maxViewsValue,
       expires_at: expiresAt,
       // 分享页 URL，前端通过该地址进入 fileshare 视图
-      url: `/file/${finalSlug}`,
+      url: finalTargetType === "folder" ? `/folder/${finalSlug}` : `/file/${finalSlug}`,
       use_proxy: useProxyFlag,
       created_by: createdBy,
       used_original_filename: originalFilenameUsed,
       storage_path: storagePath,
       storage_type: storageType,
+      target_type: finalTargetType,
     };
 
     return response;

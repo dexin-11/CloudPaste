@@ -829,6 +829,15 @@ export async function runLegacyMigrationByVersion(db, version) {
       break;
     }
 
+    case 35:
+      console.log("版本35：为 files 表添加 target_type 字段（分享目标类型：file | folder）...");
+      try {
+        await addTableField(db, DbTables.FILES, "target_type", "target_type TEXT NOT NULL DEFAULT 'file'");
+      } catch (e) {
+        console.warn("版本35：添加 files.target_type 失败（可忽略，后续会再次尝试）:", e?.message || e);
+      }
+      break;
+
     default:
       console.log(`未知的迁移版本: ${version}`);
       break;

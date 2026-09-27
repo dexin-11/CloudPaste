@@ -479,16 +479,18 @@ export class FileShareService {
     const mountManager = new MountManager(this.db, this.encryptionSecret, this.repositoryFactory);
     const fileSystem = new FileSystem(mountManager);
     const fileInfo = await fileSystem.getFileInfo(fsPath, userIdOrInfo, userType);
-    if (!fileInfo || fileInfo.isDirectory) {
-      throw new ValidationError("只能为文件创建分享");
+    if (!fileInfo) {
+      throw new ValidationError("路径不存在");
     }
+    const isDirectory = !!fileInfo.isDirectory;
     const { mount, subPath } = await mountManager.getDriverByPath(fsPath, userIdOrInfo, userType);
     return await this.records.createShareRecord({
       mount,
       fsPath,
+      targetType: isDirectory ? "folder" : "file",
       storageSubPath: subPath || "",
       filename: fileInfo.name,
-      size: fileInfo.size || 0,
+      size: isDirectory ? 0 : (fileInfo.size || 0),
       remark: options.remark || `来自文件系统: ${fsPath}`,
       userIdOrInfo,
       userType,
@@ -498,7 +500,7 @@ export class FileShareService {
       expiresInHours: options.expiresIn || 0,
       maxViews: options.maxViews || 0,
       useProxy: options.useProxy,
-      mimeType: fileInfo.mimetype || fileInfo.mimeType || undefined,
+      mimeType: isDirectory ? "inode/directory" : (fileInfo.mimetype || fileInfo.mimeType || undefined),
       request: options.request || null,
       uploadResult: null,
       originalFilenameUsed: true,

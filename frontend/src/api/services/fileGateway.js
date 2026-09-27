@@ -1,5 +1,6 @@
 import * as fileService from "./fileService.js";
 import { getFilePassword } from "@/utils/filePasswordUtils.js";
+import { getFullApiUrl } from "@/api/config";
 
 function normalizeListResponse(response, limit, offset) {
   const payload = response?.data ?? response?.files ?? response;
@@ -108,6 +109,67 @@ export async function getSharedFileBySlug(slug) {
     throw new Error(response?.message || "获取文件详情失败");
   }
   return response.data;
+}
+
+/******************************************************************************
+ * 文件夹分享（公开只读）
+ ******************************************************************************/
+
+export async function getSharedFolderBySlug(slug) {
+  const response = await fileService.getPublicFolder(slug);
+  if (!response?.success) {
+    throw new Error(response?.message || "获取文件夹分享失败");
+  }
+  return response.data;
+}
+
+export async function verifySharedFolderPassword(slug, password) {
+  const response = await fileService.verifyFolderPassword(slug, password);
+  if (!response?.success) {
+    throw new Error(response?.message || "验证文件夹密码失败");
+  }
+  return response.data;
+}
+
+export async function getSharedFolderList(slug, options = {}) {
+  const response = await fileService.getPublicFolderList(slug, options);
+  if (!response?.success) {
+    throw new Error(response?.message || "获取目录失败");
+  }
+  return response.data;
+}
+
+/**
+ * 构建文件夹分享单文件下载 URL（后端代理入口）
+ * - path 为分享根目录相对路径；设置了密码的分享需携带 password
+ * @param {string} slug
+ * @param {string} path
+ * @param {string} [password]
+ * @returns {string}
+ */
+export function buildFolderDownloadUrl(slug, path, password) {
+  if (!slug || !path) return "";
+  const params = new URLSearchParams();
+  params.set("path", path);
+  if (password) params.set("password", password);
+  return `${getFullApiUrl(`/share/folder/${encodeURIComponent(slug)}/download`)}?${params.toString()}`;
+}
+
+/**
+ * 构建文件夹分享单文件预览 URL（内联展示，不强制下载）
+ * - 供图片/音视频/PDF 等在页面内预览使用；文本类预览亦复用同一入口
+ * @param {string} slug
+ * @param {string} path
+ * @param {string} [password]
+ * @returns {string}
+ */
+export function buildFolderPreviewUrl(slug, path, password) {
+  if (!slug || !path) return "";
+  const params = new URLSearchParams();
+  params.set("path", path);
+  params.set("inline", "1");
+  if (password) params.set("password", password);
+  return `${getFullApiUrl(`/share/folder/${encodeURIComponent(slug)}/download`)}?${params.toString()}`;
 }
 
 export function buildPreviewUrl(file, options = {}) {

@@ -2,7 +2,12 @@ import {
   listSharedFiles,
   getSharedFileById,
   getSharedFileBySlug,
+  getSharedFolderBySlug,
+  verifySharedFolderPassword,
+  getSharedFolderList,
   buildDownloadUrl as gatewayBuildDownloadUrl,
+  buildFolderDownloadUrl as gatewayBuildFolderDownloadUrl,
+  buildFolderPreviewUrl as gatewayBuildFolderPreviewUrl,
   buildPreviewUrl as gatewayBuildPreviewUrl,
   buildContentUrl as gatewayBuildContentUrl,
   getOfficePreviewUrl as gatewayGetOfficePreviewUrl,
@@ -60,6 +65,85 @@ export function useFileshareService() {
       throw new Error("缺少文件 slug");
     }
     return /** @type {FileshareItem} */ (await getSharedFileBySlug(slug));
+  };
+
+  /**
+   * 获取文件夹分享元信息（无密码时含根目录 items）
+   * @param {string} slug
+   * @returns {Promise<Object>}
+   */
+  const fetchFolderBySlug = async (slug) => {
+    if (!slug) {
+      throw new Error("缺少文件夹分享 slug");
+    }
+    return await getSharedFolderBySlug(slug);
+  };
+
+  /**
+   * 验证文件夹分享密码（成功后返回根目录 items）
+   * @param {string} slug
+   * @param {string} password
+   * @returns {Promise<Object>}
+   */
+  const verifyFolderPassword = async (slug, password) => {
+    if (!slug || !password) {
+      throw new Error("缺少文件夹标识或密码");
+    }
+    return await verifySharedFolderPassword(slug, password);
+  };
+
+  /**
+   * 获取文件夹分享子目录列表
+   * @param {string} slug
+   * @param {{path?:string, password?:string}} [options]
+   * @returns {Promise<Object>}
+   */
+  const fetchFolderList = async (slug, options = {}) => {
+    if (!slug) {
+      throw new Error("缺少文件夹分享 slug");
+    }
+    return await getSharedFolderList(slug, options);
+  };
+
+  /**
+   * 构建文件夹分享单文件下载 URL（需携带分享根相对路径，密码分享附加 password）
+   * @param {string} slug
+   * @param {string} path
+   * @param {string} [password]
+   * @returns {string}
+   */
+  const buildFolderDownloadUrl = (slug, path, password) => {
+    return gatewayBuildFolderDownloadUrl(slug, path, password);
+  };
+
+  /**
+   * 构建文件夹分享单文件预览 URL（内联展示，不强制下载）
+   * @param {string} slug
+   * @param {string} path
+   * @param {string} [password]
+   * @returns {string}
+   */
+  const buildFolderPreviewUrl = (slug, path, password) => {
+    return gatewayBuildFolderPreviewUrl(slug, path, password);
+  };
+
+  /**
+   * 构建文件夹分享页 URL（/folder/:slug）
+   * @param {Object} folder - 至少包含 slug
+   * @param {string} [origin]
+   * @returns {string}
+   */
+  const buildFolderShareUrl = (folder, origin) => {
+    if (!folder || !folder.slug) return "";
+    const base =
+      typeof origin === "string" && origin.length
+        ? origin
+        : typeof window !== "undefined"
+        ? window.location.origin
+        : "";
+    if (!base) return `/folder/${folder.slug}`;
+    const normalized = base.replace(/\/+$/, "");
+    return `${normalized}/folder/${folder.slug}`;
   };
 
   /**
@@ -127,7 +211,7 @@ export function useFileshareService() {
   };
 
   /**
-   * 更新文件元数据（备注、最大访问次数、过期时间等）
+   * 更新文件元数据（备注、最大下载次数、过期时间等）
    * @param {number|string} fileId
    * @param {Partial<FileshareItem>} metadata
    * @returns {Promise<true|FileshareItem>}
@@ -195,6 +279,12 @@ export function useFileshareService() {
     fetchList,
     fetchById,
     fetchBySlug,
+    fetchFolderBySlug,
+    verifyFolderPassword,
+    fetchFolderList,
+    buildFolderDownloadUrl,
+    buildFolderPreviewUrl,
+    buildFolderShareUrl,
     getPermanentDownloadUrl,
     getPermanentPreviewUrl,
     getPermanentContentUrl,
