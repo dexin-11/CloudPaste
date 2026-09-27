@@ -135,15 +135,23 @@
               {{ segment }}
             </button>
           </template>
-          <button
-            type="button"
-            class="ml-auto inline-flex items-center px-2 py-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-            :disabled="listLoading"
-            @click="refreshListing"
-          >
-            <IconRefresh size="sm" class="mr-1" :class="{ 'animate-spin': listLoading }" />
-            {{ t("fileView.folder.actions.refresh") }}
-          </button>
+          <div class="ml-auto flex items-center gap-2">
+            <ViewModeToggle
+              v-model="viewMode"
+              :options="viewModeOptions"
+              :dark-mode="darkMode"
+              size="sm"
+            />
+            <button
+              type="button"
+              class="inline-flex items-center px-2 py-1 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              :disabled="listLoading"
+              @click="refreshListing"
+            >
+              <IconRefresh size="sm" class="mr-1" :class="{ 'animate-spin': listLoading }" />
+              {{ t("fileView.folder.actions.refresh") }}
+            </button>
+          </div>
         </div>
 
         <!-- 条目列表 -->
@@ -156,7 +164,7 @@
             {{ t("fileView.folder.emptyFolder") }}
           </div>
 
-          <ul v-else class="divide-y divide-gray-200 dark:divide-gray-700">
+          <ul v-else-if="viewMode === 'list'" class="divide-y divide-gray-200 dark:divide-gray-700">
             <li
               v-for="item in sortedItems"
               :key="item.path"
@@ -225,6 +233,31 @@
               </div>
             </li>
           </ul>
+
+          <!-- 宫格视图 -->
+          <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-3">
+            <button
+              v-for="item in sortedItems"
+              :key="item.path"
+              type="button"
+              class="group flex flex-col items-center gap-2 p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-center"
+              :title="item.name"
+              @click="handleItemClick(item)"
+            >
+              <div class="w-full aspect-square flex items-center justify-center overflow-hidden rounded-md bg-gray-100 dark:bg-gray-700">
+                <img
+                  v-if="!item.isDirectory && detectPreviewKind(item.name) === 'image'"
+                  :src="buildThumbUrl(item)"
+                  :alt="item.name"
+                  class="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <IconFolder v-else-if="item.isDirectory" class="h-10 w-10 text-blue-500" />
+                <IconDocumentText v-else class="h-10 w-10 text-gray-400 dark:text-gray-500" />
+              </div>
+              <span class="w-full truncate text-xs text-gray-900 dark:text-white">{{ item.name }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -292,6 +325,7 @@ import { formatFileSize, lookupMimeType } from "@/utils/fileTypes.js";
 import { formatDateTime } from "@/utils/timeUtils.js";
 import { createLogger } from "@/utils/logger.js";
 import LoadingIndicator from "@/components/common/LoadingIndicator.vue";
+import ViewModeToggle from "@/components/common/ViewModeToggle.vue";
 import {
   IconChevronRight,
   IconClock,
@@ -322,10 +356,24 @@ const props = defineProps({
 
 const PREVIEW_KINDS = ["image", "video", "audio", "pdf", "text"];
 const TEXT_PREVIEW_MAX_CHARS = 200000;
+const VIEW_MODE_STORAGE_KEY = "folderShare:viewMode";
+
+const readStoredViewMode = () => {
+  try {
+    return window.localStorage.getItem(VIEW_MODE_STORAGE_KEY) === "grid" ? "grid" : "list";
+  } catch {
+    return "list";
+  }
+};
 
 const slug = ref(props.slug);
 const meta = ref({});
 const items = ref([]);
+const viewMode = ref(readStoredViewMode());
+const viewModeOptions = [
+  { value: "list", icon: "list", titleKey: "fileView.folder.viewMode.list" },
+  { value: "grid", icon: "grid", titleKey: "fileView.folder.viewMode.grid" },
+];
 const loading = ref(true);
 const listLoading = ref(false);
 const errorKind = ref("");
@@ -509,6 +557,16 @@ const downloadFile = (item) => {
   setTimeout(() => document.body.removeChild(link), 100);
 };
 
+/** 宫格视图缩略图 URL（复用内联预览入口） */
+const buildThumbUrl = (item) => fileshareService.buildFolderPreviewUrl(slug.value, item.path, currentPassword.value);
+
+/** 宫格条目点击：目录进入、可预览文件打开预览、其余直接下载 */
+const handleItemClick = (item) => {
+  if (item.isDirectory) return navigateTo(item.path);
+  if (canPreview(item.name)) return openPreview(item);
+  downloadFile(item);
+};
+
 /** 依据扩展名/MIME 判定可预览类型 */
 const detectPreviewKind = (name) => {
   const mime = lookupMimeType(name) || "";
@@ -557,6 +615,14 @@ const closePreview = () => {
 
 onMounted(() => {
   loadMeta();
+});
+
+watch(viewMode, (mode) => {
+  try {
+    window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+  } catch {
+    // 忽略存储不可用（隐私模式等）
+  }
 });
 
 watch(

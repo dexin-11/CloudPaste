@@ -3,7 +3,9 @@
  *
  * - 公开只读访问 target_type === 'folder' 的分享记录
  * - 目录浏览统一走存储驱动 READER 能力（MountManager.getDriver + listDirectory）
- * - 单文件下载走后端代理（StorageStreaming，SHARE 通道），成功后累计下载计数
+ * - 单文件下载走后端代理（StorageStreaming，SHARE 通道）
+ * - 下载次数语义：整个文件夹分享按“一次下载”计（而非文件夹内每个文件各计一次）
+ *   同一浏览器会话内首次成功下载计 1 次，之后该会话内继续下载不再累加（以 HttpOnly Cookie 标识）
  *
  * 安全约定：
  * - path 参数为“分享根目录相对路径”，禁止绝对路径与 `..` 越权段
@@ -11,12 +13,12 @@
  */
 
 import { ApiStatus } from "../../constants/index.js";
-import { AppError, NotFoundError, AuthenticationError, AuthorizationError, ValidationError } from "../../http/errors.js";
+import { AppError, NotFoundError, AuthenticationError, ValidationError } from "../../http/errors.js";
 import { jsonOk } from "../../utils/common.js";
 import { getEncryptionSecret } from "../../utils/environmentUtils.js";
 import { useRepositories } from "../../utils/repositories.js";
 import { verifyPassword } from "../../utils/crypto.js";
-import { getFileBySlug, isFileAccessible } from "../../services/fileService.js";
+import { getFileBySlug } from "../../services/fileService.js";
 import { checkAndDeleteExpiredFile } from "../../services/fileViewService.js";
 import { MountManager } from "../../storage/managers/MountManager.js";
 import { CAPABILITIES } from "../../storage/interfaces/capabilities/index.js";
@@ -84,13 +86,77 @@ async function loadFolderShare(db, slug, encryptionSecret) {
 }
 
 /**
- * 访问守卫：过期 / 达到下载上限时清理记录并返回 410
+ * 文件夹分享“本次会话已计过下载次数”的 Cookie 名
+ * - slug 可能包含非 ASCII/特殊字符，这里做一次稳定短哈希，保证 Cookie 名合法
+ * @param {string} slug
+ * @returns {string}
  */
-async function ensureAccessible(db, record, encryptionSecret, repositoryFactory) {
-  const access = await isFileAccessible(db, record, encryptionSecret);
-  if (access.accessible) return;
+function folderDownloadCookieName(slug) {
+  const raw = String(slug || "");
+  let hash = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+  }
+  return `cpfs_dl_${hash.toString(36)}`;
+}
 
-  if (access.reason === "expired") {
+/**
+ * 当前浏览器会话是否已经为该文件夹分享计过下载次数
+ * @param {import("hono").Context} c
+ * @param {string} slug
+ * @returns {boolean}
+ */
+function hasSessionCounted(c, slug) {
+  try {
+    const cookieHeader = c.req.header("Cookie") || "";
+    const name = folderDownloadCookieName(slug);
+    const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+    return !!match && match[1] === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 构造“本次会话已计过下载次数”的 Set-Cookie 值
+ * - 直接写入流式响应头，避免依赖框架对自定义响应的 Cookie 合并行为
+ * @param {import("hono").Context} c
+ * @param {string} slug
+ * @returns {string}
+ */
+function buildSessionCookie(c, slug) {
+  const isHttps = new URL(c.req.url).protocol === "https:";
+  const name = folderDownloadCookieName(slug);
+  const attrs = [`${name}=1`, "Path=/", `Max-Age=${60 * 60 * 12}`, "HttpOnly", "SameSite=Lax"];
+  if (isHttps) attrs.push("Secure");
+  return attrs.join("; ");
+}
+
+/**
+ * 访问守卫：过期 / 达到下载上限时清理记录并返回 410
+ * @param {Object} [options]
+ * @param {boolean} [options.allowLimitReached] 允许“已达下载上限但本会话已计过次”的情况继续访问
+ */
+async function ensureAccessible(db, record, encryptionSecret, repositoryFactory, options = {}) {
+  const { allowLimitReached = false } = options;
+
+  // 有效期过期：始终拒绝并清理分享记录
+  if (record.expires_at) {
+    const expiry = new Date(record.expires_at);
+    if (!Number.isNaN(expiry.getTime()) && Date.now() > expiry.getTime()) {
+      await checkAndDeleteExpiredFile(db, record, encryptionSecret, repositoryFactory);
+      throw new AppError("分享已过期或已达下载次数上限", {
+        status: ApiStatus.GONE,
+        code: "GONE",
+        expose: true,
+      });
+    }
+  }
+
+  // 下载次数上限：文件夹分享以“整个分享”为一次下载
+  const maxViews = Number(record.max_views) || 0;
+  const views = Number(record.views) || 0;
+  if (maxViews > 0 && views >= maxViews && !allowLimitReached) {
     await checkAndDeleteExpiredFile(db, record, encryptionSecret, repositoryFactory);
     throw new AppError("分享已过期或已达下载次数上限", {
       status: ApiStatus.GONE,
@@ -98,7 +164,6 @@ async function ensureAccessible(db, record, encryptionSecret, repositoryFactory)
       expose: true,
     });
   }
-  throw new AuthorizationError("分享不可访问");
 }
 
 /**
@@ -203,7 +268,9 @@ export const registerFolderPublicRoutes = (router) => {
       return jsonOk(c, { ...buildMetaPayload(record), path: "", items: null }, "需要密码访问");
     }
 
-    await ensureAccessible(db, record, encryptionSecret, repositoryFactory);
+    await ensureAccessible(db, record, encryptionSecret, repositoryFactory, {
+      allowLimitReached: hasSessionCounted(c, slug),
+    });
     const listing = await listFolder(db, record, encryptionSecret, repositoryFactory, "");
     return jsonOk(c, { ...buildMetaPayload(record), path: listing.path, items: listing.items }, "获取分享成功");
   });
@@ -219,7 +286,9 @@ export const registerFolderPublicRoutes = (router) => {
     const plainPassword = body?.password;
 
     const record = await loadFolderShare(db, slug, encryptionSecret);
-    await ensureAccessible(db, record, encryptionSecret, repositoryFactory);
+    await ensureAccessible(db, record, encryptionSecret, repositoryFactory, {
+      allowLimitReached: hasSessionCounted(c, slug),
+    });
     await ensurePassword(record, plainPassword);
 
     const listing = await listFolder(db, record, encryptionSecret, repositoryFactory, "");
@@ -234,7 +303,9 @@ export const registerFolderPublicRoutes = (router) => {
     const repositoryFactory = useRepositories(c);
 
     const record = await loadFolderShare(db, slug, encryptionSecret);
-    await ensureAccessible(db, record, encryptionSecret, repositoryFactory);
+    await ensureAccessible(db, record, encryptionSecret, repositoryFactory, {
+      allowLimitReached: hasSessionCounted(c, slug),
+    });
     await ensurePassword(record, c.req.query("password"));
 
     const relPath = normalizeRelPath(c.req.query("path"));
@@ -250,7 +321,11 @@ export const registerFolderPublicRoutes = (router) => {
     const repositoryFactory = useRepositories(c);
 
     const record = await loadFolderShare(db, slug, encryptionSecret);
-    await ensureAccessible(db, record, encryptionSecret, repositoryFactory);
+    // 同一浏览器会话内已计过次：达到上限也允许继续下载（整个文件夹只计一次）
+    const sessionCounted = hasSessionCounted(c, slug);
+    await ensureAccessible(db, record, encryptionSecret, repositoryFactory, {
+      allowLimitReached: sessionCounted,
+    });
     await ensurePassword(record, c.req.query("password"));
 
     const relPath = normalizeRelPath(c.req.query("path"));
@@ -310,11 +385,13 @@ export const registerFolderPublicRoutes = (router) => {
     response.headers.set("Access-Control-Allow-Headers", "Range, Content-Type");
     response.headers.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
 
-    // 成功交付后累计下载计数（文件夹分享的下载次数为内部所有文件的累计值）
-    // 仅“实际下载”计数；inline=1 为页面内预览，不消耗次数
-    if (!isInline && (response.status === 302 || (response.status >= 200 && response.status < 300))) {
+    // 成功交付后累计下载计数
+    // - 仅在“实际下载”时计数；inline=1 为页面内预览，不消耗次数
+    // - 同一浏览器会话内只计 1 次（整个文件夹分享按一次下载计），并写入 Cookie 以便后续下载放行
+    if (!isInline && !sessionCounted && (response.status === 302 || (response.status >= 200 && response.status < 300))) {
       try {
         await repositoryFactory.getFileRepository().incrementDownloads(record.id);
+        response.headers.set("Set-Cookie", buildSessionCookie(c, slug));
       } catch (e) {
         console.warn("递增下载计数失败（已忽略）:", e?.message || e);
       }

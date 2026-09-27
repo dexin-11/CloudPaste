@@ -40,6 +40,10 @@ export default {
         openFolder: "打开",
         refresh: "刷新",
       },
+      viewMode: {
+        list: "列表视图",
+        grid: "宫格视图",
+      },
       preview: {
         title: "文件预览",
         loading: "加载中...",

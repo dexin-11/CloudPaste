@@ -40,6 +40,10 @@ export default {
         openFolder: "Open",
         refresh: "Refresh",
       },
+      viewMode: {
+        list: "List View",
+        grid: "Grid View",
+      },
       preview: {
         title: "File Preview",
         loading: "Loading...",
