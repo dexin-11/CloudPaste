@@ -11,6 +11,7 @@ import {
   buildPreviewUrl as gatewayBuildPreviewUrl,
   buildContentUrl as gatewayBuildContentUrl,
   getOfficePreviewUrl as gatewayGetOfficePreviewUrl,
+  registerShareAccessToken,
 } from "@/api/services/fileGateway.js";
 import {
   updateFile as apiUpdateFile,
@@ -89,7 +90,12 @@ export function useFileshareService() {
     if (!slug || !password) {
       throw new Error("缺少文件夹标识或密码");
     }
-    return await verifySharedFolderPassword(slug, password);
+    const data = await verifySharedFolderPassword(slug, password);
+    // 登记短时效访问令牌：后续 list/download URL 优先用 ?at=，避免明文密码进 URL
+    if (data?.accessToken) {
+      registerShareAccessToken(slug, data.accessToken);
+    }
+    return data;
   };
 
   /**
@@ -270,7 +276,12 @@ export function useFileshareService() {
       if (!resp.success) {
         throw new Error(resp.message || "验证文件密码失败");
       }
-      return resp.data ?? true;
+      const data = resp.data ?? true;
+      // 登记短时效访问令牌：下载/预览 URL 优先用 ?at=，避免明文密码进 URL
+      if (data && typeof data === "object" && data.accessToken) {
+        registerShareAccessToken(slug, data.accessToken);
+      }
+      return data;
     }
     return resp;
   };

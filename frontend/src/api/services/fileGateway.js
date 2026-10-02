@@ -68,18 +68,51 @@ function parseFileShareUrl(url) {
 }
 
 function ensurePasswordInUrl(url, password, file) {
-  if (!url || !password) return url || "";
+  if (!url || (!password && !file?.slug)) return url || "";
 
-  // 仅对 share 同源路由（/api/share/content/:slug 或 /api/s/:slug）追加密码
+  // 仅对 share 同源路由（/api/share/content/:slug 或 /api/s/:slug）追加凭据
   // 以及标记为 use_proxy 的文件，避免污染直链/CDN URL
   const shareInfo = parseFileShareUrl(url);
   const isProxy = shareInfo.isFileShare || file?.use_proxy;
 
   if (!isProxy) return url;
+
+  // 优先使用短时效访问令牌（?at=，由密码验证接口签发），避免明文密码进 URL
+  const slug = shareInfo.slug || file?.slug;
+  const token = slug ? getShareAccessToken(slug) : null;
+  if (token) {
+    if (url.includes("at=")) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}at=${encodeURIComponent(token)}`;
+  }
+
+  if (!password) return url;
   if (url.includes("password=")) return url;
 
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}password=${encodeURIComponent(password)}`;
+}
+
+/******************************************************************************
+ * 分享访问令牌（?at=）注册表
+ * - 密码验证成功后由 fileshareService 登记，URL 构建时优先使用
+ * - 仅存内存，刷新页面后重新验证
+ ******************************************************************************/
+const shareAccessTokenRegistry = new Map();
+
+export function registerShareAccessToken(slug, token) {
+  if (!slug || !token) return;
+  shareAccessTokenRegistry.set(String(slug), String(token));
+}
+
+export function getShareAccessToken(slug) {
+  if (!slug) return null;
+  return shareAccessTokenRegistry.get(String(slug)) || null;
+}
+
+export function clearShareAccessToken(slug) {
+  if (slug) shareAccessTokenRegistry.delete(String(slug));
+  else shareAccessTokenRegistry.clear();
 }
 
 function resolvePassword(file, explicitPassword) {
@@ -151,7 +184,10 @@ export function buildFolderDownloadUrl(slug, path, password) {
   if (!slug || !path) return "";
   const params = new URLSearchParams();
   params.set("path", path);
-  if (password) params.set("password", password);
+  // 优先使用访问令牌，避免明文密码进 URL
+  const token = getShareAccessToken(slug);
+  if (token) params.set("at", token);
+  else if (password) params.set("password", password);
   return `${getFullApiUrl(`/share/folder/${encodeURIComponent(slug)}/download`)}?${params.toString()}`;
 }
 
@@ -168,7 +204,10 @@ export function buildFolderPreviewUrl(slug, path, password) {
   const params = new URLSearchParams();
   params.set("path", path);
   params.set("inline", "1");
-  if (password) params.set("password", password);
+  // 优先使用访问令牌，避免明文密码进 URL
+  const token = getShareAccessToken(slug);
+  if (token) params.set("at", token);
+  else if (password) params.set("password", password);
   return `${getFullApiUrl(`/share/folder/${encodeURIComponent(slug)}/download`)}?${params.toString()}`;
 }
 

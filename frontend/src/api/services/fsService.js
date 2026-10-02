@@ -391,6 +391,7 @@ export async function createShareFromFileSystem(path, options = {}) {
   if (options.max_views !== undefined && options.max_views !== null) body.max_views = options.max_views;
   if (options.remark) body.remark = options.remark;
   if (options.slug) body.slug = options.slug;
+  if (options.encryption_meta) body.encryption_meta = options.encryption_meta;
   return post(`/fs/create-share`, body);
 }
 

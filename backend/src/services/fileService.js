@@ -13,6 +13,36 @@ import { ensureRepositoryFactory } from "../utils/repositories.js";
 import { ObjectStore } from "../storage/object/ObjectStore.js";
 import { LinkService } from "../storage/link/LinkService.js";
 import { resolvePreviewSelection } from "./documentPreviewService.js";
+import { parseEncryptionMeta } from "../utils/fileEncryption.js";
+
+/**
+ * 解析文件记录的加密模式（"server" | "e2e" | null），不对外泄露密钥材料
+ */
+function resolveEncryptionMode(file) {
+  const meta = parseEncryptionMeta(file?.encryption_meta || null);
+  return meta ? meta.mode : null;
+}
+
+/**
+ * 提取可安全公开的 E2E 加密元数据（供前端在浏览器内解密）
+ * 仅暴露分块参数（chunkSize/noncePrefix/大小），E2E 模式本身不含密钥材料；
+ * server 模式的元数据包含包裹密钥，绝不下发。
+ */
+function resolvePublicE2EMeta(file) {
+  const meta = parseEncryptionMeta(file?.encryption_meta || null);
+  if (!meta || meta.mode !== "e2e") return null;
+  return {
+    v: meta.v,
+    mode: meta.mode,
+    algo: meta.algo,
+    keyId: meta.keyId,
+    kid: meta.kid || "",
+    chunkSize: meta.chunkSize,
+    noncePrefix: meta.noncePrefix,
+    plainSize: meta.plainSize,
+    cipherSize: meta.cipherSize,
+  };
+}
 
 export class FileService {
   /**
@@ -237,6 +267,8 @@ export class FileService {
       downloadUrl,
       linkType,
       use_proxy: useProxyFlag,
+      encryption_mode: resolveEncryptionMode(file),
+      encryption_meta: resolvePublicE2EMeta(file),
       created_by: file.created_by || null,
       type: fileType, // 整数类型常量 (0-6)
       typeName: fileTypeName, // 类型名称（用于调试）

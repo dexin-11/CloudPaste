@@ -217,6 +217,7 @@ export async function createFileTables(db) {
         views INTEGER DEFAULT 0,
         use_proxy BOOLEAN DEFAULT 0,
         target_type TEXT NOT NULL DEFAULT 'file',
+        encryption_meta TEXT,                   -- 文件加密元数据（CPENC1，JSON；NULL=未加密）
 
         -- 元数据
         created_by TEXT,

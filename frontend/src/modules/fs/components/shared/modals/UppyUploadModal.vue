@@ -105,6 +105,24 @@
                 :placeholder="t('mount.shareCreate.maxViewsPlaceholder')"
               />
             </div>
+
+            <!-- 端到端加密 -->
+            <div>
+              <label class="flex items-center space-x-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  v-model="e2eEnabled"
+                  :disabled="isUploading"
+                  class="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                <span class="text-sm font-medium" :class="darkMode ? 'text-gray-200' : 'text-gray-700'">
+                  {{ t("mount.shareCreate.e2eEncryption") }}
+                </span>
+              </label>
+              <p class="mt-1 text-xs" :class="darkMode ? 'text-gray-500' : 'text-gray-400'">
+                {{ e2ePreparing ? t("mount.shareCreate.e2eEncrypting") : t("mount.shareCreate.e2eEncryptionHint") }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -243,6 +261,9 @@ import { createUppyPluginManager } from "@/modules/storage-core/uppy/UppyPluginM
 // 导入 URL 上传服务
 import { validateUrlInfo, fetchUrlContent } from "@/api/services/urlUploadService.js";
 
+// 端到端加密
+import { encryptBlobForE2E, appendE2EKeyToUrl } from "@/modules/storage-core/e2e/e2eCrypto.js";
+
 // 导入对话框组件
 import SelectUploadDialog from "@/components/common/dialogs/SelectUploadDialog.vue";
 import ShareLinkBox from "@/components/common/ShareLinkBox.vue";
@@ -317,6 +338,18 @@ const shareResults = ref([]);
 const isCreatingShares = ref(false);
 const showQRCodeModal = ref(false);
 const qrLink = ref("");
+
+// 端到端加密：密钥只存内存（fileId -> keyB64），绝不放入 Uppy meta（meta 会随表单上传发往服务器）
+const e2eEnabled = ref(false);
+const e2ePreparing = ref(false);
+const e2eKeys = new Map();
+
+// 开启端到端加密时必须生成分享链接，否则密文落库后将无法解密
+watch(e2eEnabled, (enabled) => {
+  if (enabled && !shareEnabled.value) {
+    shareEnabled.value = true;
+  }
+});
 
 const shareExpiryOptions = computed(() => [
   { value: "1", label: t("mount.shareCreate.expiryOptions.hour1") },
@@ -782,20 +815,28 @@ const createSharesForUploaded = async (successfulFiles) => {
         if (!fsPath) {
           throw new Error(t("mount.shareCreate.failed"));
         }
+        // 端到端加密：登记加密元数据（不含密钥），并把密钥放进分享链接 fragment
+        const e2eMeta = file?.meta?.cloudpasteE2E || null;
+        const e2eKey = e2eKeys.get(file.id) || null;
         const resp = await createShareFromFileSystem(fsPath, {
           password: shareForm.password || "",
           expires_in: String(shareForm.expires_in ?? "0"),
           max_views: Math.max(0, Number(shareForm.max_views) || 0),
           remark: shareForm.remark || "",
+          ...(e2eMeta ? { encryption_meta: e2eMeta } : {}),
         });
         if (!resp || resp.success === false) {
           throw new Error(resp?.message || t("mount.shareCreate.failed"));
         }
         const data = resp.data || {};
+        let link = data.url ? `${window.location.origin}${data.url}` : "";
+        if (link && e2eMeta && e2eKey) {
+          link = appendE2EKeyToUrl(link, e2eKey);
+        }
         shareResults.value.push({
           name,
           success: true,
-          link: data.url ? `${window.location.origin}${data.url}` : "",
+          link,
           result: data,
         });
       } catch (error) {
@@ -836,6 +877,9 @@ const resetShareState = () => {
   isCreatingShares.value = false;
   showQRCodeModal.value = false;
   qrLink.value = "";
+  e2eEnabled.value = false;
+  e2ePreparing.value = false;
+  e2eKeys.clear();
   resetShareSettings();
 };
 
@@ -1006,6 +1050,37 @@ const normalizeFsUploadError = (error) => {
 };
 
 /**
+ * 端到端加密准备：把 Uppy 队列内所有本地文件的 data 替换为密文 Blob
+ * - 密钥保存在组件内存 e2eKeys（fileId -> keyB64），不进 meta
+ * - meta 只带 cloudpasteE2E（加密元数据，不含密钥），供创建分享时登记
+ */
+const prepareE2EForUppyFiles = async () => {
+  const uppy = uppyInstance.value;
+  if (!uppy || !e2eEnabled.value) return;
+  e2ePreparing.value = true;
+  try {
+    for (const file of uppy.getFiles()) {
+      if (!file?.id || file?.meta?.cloudpasteE2E) continue;
+      const blob = file?.data instanceof Blob ? file.data : null;
+      if (!blob) continue; // remote/URL 导入文件不支持本地加密
+      const { cipherBlob, meta, keyB64 } = await encryptBlobForE2E(blob);
+      try {
+        uppy.setFileState(file.id, { data: cipherBlob, size: cipherBlob.size });
+      } catch {
+        file.data = cipherBlob;
+        file.size = cipherBlob.size;
+      }
+      try {
+        uppy.setFileMeta(file.id, { cloudpasteE2E: meta });
+      } catch {}
+      e2eKeys.set(file.id, keyB64);
+    }
+  } finally {
+    e2ePreparing.value = false;
+  }
+};
+
+/**
  * 开始上传
  */
 const startUpload = async () => {
@@ -1025,6 +1100,9 @@ const startUpload = async () => {
     }
 
     driverStrategy.value = strategyMap[uploadMethod.value] || STORAGE_STRATEGIES.BACKEND_STREAM;
+
+    // 端到端加密：上传前把文件内容替换为密文（字节层面加密，对所有上传通道透明）
+    await prepareE2EForUppyFiles();
 
     disposeFsSession();
     resetBackendProgressTracking();

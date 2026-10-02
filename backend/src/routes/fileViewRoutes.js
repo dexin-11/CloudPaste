@@ -10,6 +10,7 @@ import { useRepositories } from "../utils/repositories.js";
 import { ApiStatus } from "../constants/index.js";
 import { AppError, AuthorizationError, NotFoundError } from "../http/errors.js";
 import { verifyPassword } from "../utils/crypto.js";
+import { verifyShareAccessToken } from "../utils/shareAccessToken.js";
 
 const app = new Hono();
 
@@ -38,11 +39,19 @@ async function handleShareDelivery(c, { forceDownload, forceProxy }) {
   const passwordParam = url.searchParams.get("password");
 
   if (file.password) {
-    if (!passwordParam) {
-      throw new AuthorizationError("需要密码访问此文件");
+    // 优先校验短时效访问令牌（?at=），兼容旧 ?password= 明文参数
+    let authorized = false;
+    const atToken = url.searchParams.get("at");
+    if (atToken) {
+      authorized = await verifyShareAccessToken(encryptionSecret, atToken, { type: "file", slug });
     }
-    const valid = await verifyPassword(passwordParam, file.password);
-    if (!valid) {
+    if (!authorized) {
+      if (!passwordParam) {
+        throw new AuthorizationError("需要密码访问此文件");
+      }
+      authorized = await verifyPassword(passwordParam, file.password);
+    }
+    if (!authorized) {
       throw new AuthorizationError("密码不正确");
     }
   }

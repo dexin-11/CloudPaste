@@ -3,6 +3,7 @@ import { AppError, NotFoundError, AuthenticationError, ValidationError } from ".
 import { jsonOk } from "../../utils/common.js";
 import { guardShareFile, getFileBySlug, getPublicFileInfo } from "../../services/fileService.js";
 import { verifyPassword } from "../../utils/crypto.js";
+import { generateShareAccessToken } from "../../utils/shareAccessToken.js";
 import { useRepositories } from "../../utils/repositories.js";
 import { getEncryptionSecret } from "../../utils/environmentUtils.js";
 import { LinkService } from "../../storage/link/LinkService.js";
@@ -95,7 +96,10 @@ export const registerFilesPublicRoutes = (router) => {
           throw new AuthenticationError("密码不正确");
         }
       }
-      return jsonOk(c, buildFolderMetaPayload(file), "密码验证成功");
+      const meta = buildFolderMetaPayload(file);
+      // 签发短时效访问令牌：后续 list/download URL 携带 ?at=，避免明文密码进 URL
+      meta.accessToken = await generateShareAccessToken(encryptionSecret, { type: "folder", slug });
+      return jsonOk(c, meta, "密码验证成功");
     }
 
     if (!file.password) {
@@ -138,6 +142,8 @@ export const registerFilesPublicRoutes = (router) => {
     const publicInfo = await getPublicFileInfo(db, fileWithPassword, false, link, encryptionSecret, {
       baseOrigin: requestUrl.origin,
     });
+    // 签发短时效访问令牌：下载/预览 URL 携带 ?at=，避免明文密码进 URL（旧 ?password= 仍兼容）
+    publicInfo.accessToken = await generateShareAccessToken(encryptionSecret, { type: "file", slug });
 
     return jsonOk(c, publicInfo, "密码验证成功");
   };

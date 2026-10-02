@@ -18,6 +18,8 @@ import { jsonOk } from "../../utils/common.js";
 import { getEncryptionSecret } from "../../utils/environmentUtils.js";
 import { useRepositories } from "../../utils/repositories.js";
 import { verifyPassword } from "../../utils/crypto.js";
+import { generateShareAccessToken, verifyShareAccessToken } from "../../utils/shareAccessToken.js";
+import { parseEncryptionMeta } from "../../utils/fileEncryption.js";
 import { getFileBySlug } from "../../services/fileService.js";
 import { checkAndDeleteExpiredFile } from "../../services/fileViewService.js";
 import { MountManager } from "../../storage/managers/MountManager.js";
@@ -168,9 +170,22 @@ async function ensureAccessible(db, record, encryptionSecret, repositoryFactory,
 
 /**
  * 密码守卫（仅在分享设置了密码时生效）
+ * 优先校验短时效访问令牌（?at=），兼容旧 ?password= 明文参数
  */
-async function ensurePassword(record, plainPassword) {
+async function ensurePassword(record, plainPassword, request = null, encryptionSecret = null) {
   if (!record.password) return;
+
+  if (request && encryptionSecret) {
+    try {
+      const atToken = new URL(request.url).searchParams.get("at");
+      if (atToken && (await verifyShareAccessToken(encryptionSecret, atToken, { type: "folder", slug: record.slug }))) {
+        return;
+      }
+    } catch {
+      // URL 解析失败时回退到密码校验
+    }
+  }
+
   if (!plainPassword) {
     throw new AuthenticationError("需要密码访问");
   }
@@ -292,7 +307,12 @@ export const registerFolderPublicRoutes = (router) => {
     await ensurePassword(record, plainPassword);
 
     const listing = await listFolder(db, record, encryptionSecret, repositoryFactory, "");
-    return jsonOk(c, { ...buildMetaPayload(record), path: listing.path, items: listing.items }, "密码验证成功");
+    const payload = { ...buildMetaPayload(record), path: listing.path, items: listing.items };
+    // 签发短时效访问令牌：后续 list/download URL 携带 ?at=，避免明文密码进 URL
+    if (record.password) {
+      payload.accessToken = await generateShareAccessToken(encryptionSecret, { type: "folder", slug });
+    }
+    return jsonOk(c, payload, "密码验证成功");
   });
 
   // 子目录列表
@@ -306,7 +326,7 @@ export const registerFolderPublicRoutes = (router) => {
     await ensureAccessible(db, record, encryptionSecret, repositoryFactory, {
       allowLimitReached: hasSessionCounted(c, slug),
     });
-    await ensurePassword(record, c.req.query("password"));
+    await ensurePassword(record, c.req.query("password"), c.req.raw, encryptionSecret);
 
     const relPath = normalizeRelPath(c.req.query("path"));
     const listing = await listFolder(db, record, encryptionSecret, repositoryFactory, relPath);
@@ -326,7 +346,7 @@ export const registerFolderPublicRoutes = (router) => {
     await ensureAccessible(db, record, encryptionSecret, repositoryFactory, {
       allowLimitReached: sessionCounted,
     });
-    await ensurePassword(record, c.req.query("password"));
+    await ensurePassword(record, c.req.query("password"), c.req.raw, encryptionSecret);
 
     const relPath = normalizeRelPath(c.req.query("path"));
     if (!relPath) {
@@ -353,6 +373,22 @@ export const registerFolderPublicRoutes = (router) => {
       throw new ValidationError("不能下载目录");
     }
 
+    // 反查分享记录：该文件若曾被"分享上传"加密（server 模式），下载时需在代理层解密；
+    // 文件夹内普通文件（FS 上传）无记录，保持原样。
+    let downloadEncryptionMeta = null;
+    try {
+      const fileRepo = repositoryFactory.getFileRepository();
+      const shareRecord = await fileRepo
+        .findByStoragePath(record.storage_config_id, fullSubPath, record.storage_type)
+        .catch(() => null);
+      const meta = parseEncryptionMeta(shareRecord?.encryption_meta || null);
+      if (meta && meta.mode === "server") {
+        downloadEncryptionMeta = meta;
+      }
+    } catch {
+      // 反查失败不阻塞下载（未加密内容不受影响）
+    }
+
     const streaming = new StorageStreaming({
       mountManager: null,
       storageFactory: StorageFactory,
@@ -367,6 +403,7 @@ export const registerFolderPublicRoutes = (router) => {
       request: c.req.raw,
       db,
       repositoryFactory,
+      encryptionMeta: downloadEncryptionMeta,
     });
 
     const filename = relPath.split("/").filter(Boolean).pop() || record.filename || "download";
